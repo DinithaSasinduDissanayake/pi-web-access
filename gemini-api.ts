@@ -1,12 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_API_HOST = "https://generativelanguage.googleapis.com";
+const API_VERSION = "v1beta";
+export const API_BASE = `${DEFAULT_API_HOST}/${API_VERSION}`;
 const CONFIG_PATH = getWebSearchConfigPath();
 export const DEFAULT_MODEL = "gemini-3-flash-preview";
 
 interface GeminiApiConfig {
 	geminiApiKey?: unknown;
+	geminiBaseUrl?: unknown;
+	cloudflareApiKey?: unknown;
 }
 
 let cachedConfig: GeminiApiConfig | null = null;
@@ -39,12 +43,53 @@ function normalizeApiKey(value: unknown): string | null {
 	return normalized.length > 0 ? normalized : null;
 }
 
+function normalizeBaseUrl(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const normalized = value.trim().replace(/\/+$/, "");
+	return normalized.length > 0 ? normalized : null;
+}
+
+function isCloudflareGateway(): boolean {
+	return getApiHost().includes("gateway.ai.cloudflare.com");
+}
+
 export function getApiKey(): string | null {
 	return normalizeApiKey(process.env.GEMINI_API_KEY) ?? normalizeApiKey(loadConfig().geminiApiKey);
 }
 
+export function getApiHost(): string {
+	return (
+		normalizeBaseUrl(process.env.GOOGLE_GEMINI_BASE_URL) ??
+		normalizeBaseUrl(loadConfig().geminiBaseUrl) ??
+		DEFAULT_API_HOST
+	);
+}
+
+export function getVersionedApiBase(): string {
+	return `${getApiHost()}/${API_VERSION}`;
+}
+
+export function buildKeyParam(apiKey: string | null): string {
+	if (!apiKey || isCloudflareGateway()) return "";
+	return `?key=${apiKey}`;
+}
+
+export function getCloudflareApiKey(): string | null {
+	return normalizeApiKey(process.env.CLOUDFLARE_API_KEY) ?? normalizeApiKey(loadConfig().cloudflareApiKey);
+}
+
+export function isGatewayConfigured(): boolean {
+	return isCloudflareGateway() && getCloudflareApiKey() !== null;
+}
+
+export function buildAuthHeaders(): Record<string, string> {
+	if (!isCloudflareGateway()) return {};
+	const cloudflareApiKey = getCloudflareApiKey();
+	return cloudflareApiKey ? { "cf-aig-authorization": `Bearer ${cloudflareApiKey}` } : {};
+}
+
 export function isGeminiApiAvailable(): boolean {
-	return getApiKey() !== null;
+	return getApiKey() !== null || isGatewayConfigured();
 }
 
 export interface GeminiApiOptions {
@@ -60,11 +105,17 @@ export async function queryGeminiApiWithVideo(
 	options: GeminiApiOptions = {},
 ): Promise<string> {
 	const apiKey = getApiKey();
-	if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+	if (!apiKey && !isGatewayConfigured()) {
+		throw new Error(
+			"Gemini API not configured. Either:\n" +
+			`  1. Set GEMINI_API_KEY in ${CONFIG_PATH}\n` +
+			"  2. Set GOOGLE_GEMINI_BASE_URL + CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing"
+		);
+	}
 
 	const model = options.model ?? DEFAULT_MODEL;
 	const signal = withTimeout(options.signal, options.timeoutMs ?? 120000);
-	const url = `${API_BASE}/models/${model}:generateContent?key=${apiKey}`;
+	const url = `${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`;
 
 	const fileData: Record<string, string> = { fileUri: videoUri };
 	if (options.mimeType) fileData.mimeType = options.mimeType;
@@ -72,6 +123,7 @@ export async function queryGeminiApiWithVideo(
 	const body = {
 		contents: [
 			{
+				role: "user",
 				parts: [
 					{ fileData },
 					{ text: prompt },
@@ -82,7 +134,7 @@ export async function queryGeminiApiWithVideo(
 
 	const res = await fetch(url, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
 		body: JSON.stringify(body),
 		signal,
 	});

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added Tavily Search API provider support with `TAVILY_API_KEY` / `tavilyApiKey`, domain filters, recency filters, and auto-provider fallback integration.
 - Added Parallel search provider support, auto-provider fallback integration, and Parallel `fetch_content` extraction fallback.
 - Resolved `web-search.json` from `PI_CODING_AGENT_DIR`, then `XDG_CONFIG_HOME/pi`, before falling back to `~/.pi`.
+- Added `GOOGLE_GEMINI_BASE_URL` / `geminiBaseUrl` for routing Gemini generate-content calls through compatible gateways, plus `CLOUDFLARE_API_KEY` / `cloudflareApiKey` authentication for Cloudflare AI Gateway. Thanks @meatballhat-cf for PR #76 and @totoDoP for reporting #74.
 
 ### Fixed
 - Updated `@mozilla/readability` to `^0.6.0` for GHSA-3p6v-hrg8-8qj7. Thanks @omar-elmountassir for reporting #86, and @henriquebastos and @av1155 for PRs #35 and #68.
@@ -15,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Let configured Exa API keys use Exa's own account limits instead of blocking at the legacy local 1,000-request counter. Thanks @totoDoP for reporting #80.
 - Supported parallel `web_search` curator tool calls with per-call browser and cancellation state.
 - Prevented curator sessions from hanging after searches finish when no browser connects, and finalized connected idle sessions once the curator timeout elapses.
+- Added explicit `role: "user"` fields to Gemini generate-content requests for Vertex AI-backed proxy compatibility. Thanks @meatballhat-cf for PR #76 and @totoDoP for reporting #74.
 
 ## [0.11.0] - 2026-06-24
 

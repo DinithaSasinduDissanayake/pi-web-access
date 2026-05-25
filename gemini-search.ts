@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { activityMonitor } from "./activity.ts";
-import { getApiKey, API_BASE, DEFAULT_MODEL } from "./gemini-api.ts";
+import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.ts";
@@ -152,7 +152,8 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		throw new Error(
 			"Gemini search unavailable. Either:\n" +
 			`  1. Set GEMINI_API_KEY in ${CONFIG_PATH}\n` +
-			"  2. Sign into gemini.google.com in a supported Chromium-based browser"
+			"  2. Set GOOGLE_GEMINI_BASE_URL + CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
+			"  3. Sign into gemini.google.com in a supported Chromium-based browser"
 		);
 	}
 
@@ -251,28 +252,29 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	throw new Error(
 		"No search provider available. Either:\n" +
 		"  1. Use /login to sign in with a Codex subscription for OpenAI web search\n" +
-		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, perplexityApiKey, exaApiKey, or geminiApiKey in ${CONFIG_PATH}\n` +
-		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, PERPLEXITY_API_KEY, or GEMINI_API_KEY env vars\n" +
-		"  4. Sign into gemini.google.com in a supported Chromium-based browser"
+		`  2. Set openaiApiKey, braveApiKey, parallelApiKey, tavilyApiKey, perplexityApiKey, exaApiKey, geminiApiKey, or cloudflareApiKey in ${CONFIG_PATH}\n` +
+		"  3. Set OPENAI_API_KEY, BRAVE_API_KEY, PARALLEL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, or CLOUDFLARE_API_KEY env vars\n" +
+		"  4. Set GOOGLE_GEMINI_BASE_URL with CLOUDFLARE_API_KEY for Cloudflare AI Gateway routing\n" +
+		"  5. Sign into gemini.google.com in a supported Chromium-based browser"
 	);
 }
 
 async function searchWithGeminiApi(query: string, options: SearchOptions = {}): Promise<SearchResponse | null> {
 	const apiKey = getApiKey();
-	if (!apiKey) return null;
+	if (!apiKey && !isGatewayConfigured()) return null;
 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 
 	try {
 		const model = getSearchConfig().searchModel ?? DEFAULT_MODEL;
 		const body = {
-			contents: [{ parts: [{ text: query }] }],
+			contents: [{ role: "user", parts: [{ text: query }] }],
 			tools: [{ google_search: {} }],
 		};
 
-		const res = await fetch(`${API_BASE}/models/${model}:generateContent?key=${apiKey}`, {
+		const res = await fetch(`${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
 			body: JSON.stringify(body),
 			signal: AbortSignal.any([
 				AbortSignal.timeout(60000),
