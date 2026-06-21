@@ -20,7 +20,7 @@ const MODEL_HEADERS: Record<string, string> = {
 	"gemini-2.5-flash": '[1,null,null,null,"9ec249fc9ad08861",null,null,0,[4]]',
 };
 
-const REQUIRED_COOKIES = ["__Secure-1PSID", "__Secure-1PSIDTS"];
+const REQUIRED_COOKIES = ["__Secure-1PSID"]; // __Secure-1PSIDTS optional - may not be set on all domains
 
 export interface GeminiWebOptions {
 	youtubeUrl?: string;

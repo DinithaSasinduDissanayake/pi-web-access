@@ -233,9 +233,33 @@ async function importSqlite(): Promise<typeof import("node:sqlite") | null> {
 		sqliteModule = await import("node:sqlite");
 		return sqliteModule;
 	} catch {
+		// node:sqlite failed - will use sqlite3 CLI fallback
 		return null;
 	} finally {
 		process.emitWarning = orig;
+	}
+}
+
+// Fallback: query using sqlite3 CLI
+function queryWithSqlite3Cli(dbPath: string, sql: string): Array<Record<string, unknown>> | null {
+	try {
+		const { execFileSync } = require("node:child_process");
+		const result = execFileSync("sqlite3", ["-json", dbPath, sql], {
+			timeout: 5000,
+			encoding: "utf-8",
+			maxBuffer: 10 * 1024 * 1024,
+		});
+		if (!result || !result.trim()) return [];
+		const rows = JSON.parse(result);
+		// Convert encrypted_value from string to Uint8Array for decryption
+		for (const row of rows) {
+			if (typeof row.encrypted_value === "string" && row.encrypted_value.length > 0) {
+				row.encrypted_value = Buffer.from(row.encrypted_value, "binary");
+			}
+		}
+		return rows;
+	} catch {
+		return null;
 	}
 }
 
@@ -247,32 +271,38 @@ function supportsReadBigInts(): boolean {
 }
 
 async function readMetaVersion(dbPath: string): Promise<number> {
+	// Try node:sqlite first
 	const sqlite = await importSqlite();
-	if (!sqlite) return 0;
-	const opts: Record<string, unknown> = { readOnly: true };
-	if (supportsReadBigInts()) opts.readBigInts = true;
-	const db = new sqlite.DatabaseSync(dbPath, opts);
-	try {
-		const rows = db.prepare("SELECT value FROM meta WHERE key = 'version'").all() as Array<Record<string, unknown>>;
-		const val = rows[0]?.value;
-		if (typeof val === "number") return Math.floor(val);
-		if (typeof val === "bigint") return Number(val);
-		if (typeof val === "string") return parseInt(val, 10) || 0;
-		return 0;
-	} catch {
-		return 0;
-	} finally {
-		db.close();
+	if (sqlite) {
+		const opts: Record<string, unknown> = { readOnly: true };
+		if (supportsReadBigInts()) opts.readBigInts = true;
+		const db = new sqlite.DatabaseSync(dbPath, opts);
+		try {
+			const rows = db.prepare("SELECT value FROM meta WHERE key = 'version'").all() as Array<Record<string, unknown>>;
+			const val = rows[0]?.value;
+			if (typeof val === "number") return Math.floor(val);
+			if (typeof val === "bigint") return Number(val);
+			if (typeof val === "string") return parseInt(val, 10) || 0;
+			return 0;
+		} catch {
+			return 0;
+		} finally {
+			db.close();
+		}
 	}
+	// Fallback to sqlite3 CLI
+	const rows = queryWithSqlite3Cli(dbPath, "SELECT value FROM meta WHERE key = 'version'");
+	if (!rows || rows.length === 0) return 0;
+	const val = rows[0]?.value;
+	if (typeof val === "number") return Math.floor(val);
+	if (typeof val === "string") return parseInt(val, 10) || 0;
+	return 0;
 }
 
 async function queryCookieRows(
 	dbPath: string,
 	hosts: string[],
 ): Promise<Array<Record<string, unknown>> | null> {
-	const sqlite = await importSqlite();
-	if (!sqlite) return null;
-
 	const clauses: string[] = [];
 	for (const host of hosts) {
 		for (const candidate of expandHosts(host)) {
@@ -283,21 +313,25 @@ async function queryCookieRows(
 		}
 	}
 	const where = clauses.join(" OR ");
+	const sql = `SELECT name, value, host_key, encrypted_value FROM cookies WHERE (${where}) ORDER BY expires_utc DESC`;
 
-	const opts: Record<string, unknown> = { readOnly: true };
-	if (supportsReadBigInts()) opts.readBigInts = true;
-	const db = new sqlite.DatabaseSync(dbPath, opts);
-	try {
-		return db
-			.prepare(
-				`SELECT name, value, host_key, encrypted_value FROM cookies WHERE (${where}) ORDER BY expires_utc DESC`,
-			)
-			.all() as Array<Record<string, unknown>>;
-	} catch {
-		return null;
-	} finally {
-		db.close();
+	// Try node:sqlite first
+	const sqlite = await importSqlite();
+	if (sqlite) {
+		const opts: Record<string, unknown> = { readOnly: true };
+		if (supportsReadBigInts()) opts.readBigInts = true;
+		const db = new sqlite.DatabaseSync(dbPath, opts);
+		try {
+			return db.prepare(sql).all() as Array<Record<string, unknown>>;
+		} catch {
+			// Fall through to CLI
+		} finally {
+			db.close();
+		}
 	}
+
+	// Fallback to sqlite3 CLI
+	return queryWithSqlite3Cli(dbPath, sql);
 }
 
 function expandHosts(host: string): string[] {
@@ -320,3 +354,4 @@ function copySidecar(srcDb: string, targetDb: string, suffix: string): void {
 	} catch {
 	}
 }
+
