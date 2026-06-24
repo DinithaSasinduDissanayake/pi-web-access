@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Resolved `web-search.json` from `PI_CODING_AGENT_DIR`, then `XDG_CONFIG_HOME/pi`, before falling back to `~/.pi`.
 
 ### Fixed
+- Updated `@mozilla/readability` to `^0.6.0` for GHSA-3p6v-hrg8-8qj7. Thanks @omar-elmountassir for reporting #86, and @henriquebastos and @av1155 for PRs #35 and #68.
 - Limited curator summary model selection to Pi `enabledModels` when configured, and fall back to a deterministic no-billing summary instead of silently calling unrelated catalog models. Thanks @Horace1423 for reporting #73.
 - Let configured Exa API keys use Exa's own account limits instead of blocking at the legacy local 1,000-request counter. Thanks @totoDoP for reporting #80.
 - Supported parallel `web_search` curator tool calls with per-call browser and cancellation state.
