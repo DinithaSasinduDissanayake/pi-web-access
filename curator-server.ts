@@ -3,7 +3,7 @@ import { generateCuratorPage } from "./curator-page.ts";
 import type { SummaryMeta } from "./summary-review.ts";
 
 const STALE_THRESHOLD_MS = 30000;
-const WATCHDOG_INTERVAL_MS = 5000;
+const WATCHDOG_INTERVAL_MS = 1000;
 const MAX_BODY_SIZE = 64 * 1024;
 
 type ServerState = "SEARCHING" | "RESULT_SELECTION" | "COMPLETED";
